@@ -1,0 +1,10 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n}{maximum} \PY{o}{=} \PY{l+m+mf}{0.0}
+\PY{n}{best} \PY{o}{=} \PY{o}{\PYZhy{}}\PY{l+m+mi}{1}
+\PY{k}{for} \PY{n}{muon} \PY{o+ow}{in} \PY{n}{event}\PY{o}{.}\PY{n}{muons}\PY{p}{:}
+  \PY{k}{if} \PY{n}{muon}\PY{o}{.}\PY{n}{pt} \PY{o}{\PYZgt{}} \PY{n}{maximum}\PY{p}{:}
+    \PY{n}{maximum} \PY{o}{=} \PY{n}{muon}\PY{o}{.}\PY{n}{pt}
+    \PY{n}{best} \PY{o}{=} \PY{n}{muon}
+\PY{k}{if} \PY{n}{best} \PY{o}{!=} \PY{o}{\PYZhy{}}\PY{l+m+mi}{1}\PY{p}{:}
+  \PY{n}{fill\PYZus{}histogram}\PY{p}{(}\PY{n}{best}\PY{o}{.}\PY{n}{eta}\PY{p}{)}
+\end{Verbatim}

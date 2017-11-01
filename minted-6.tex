@@ -1,0 +1,12 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{n}{n} \PY{o}{=} \PY{n+nb}{len}\PY{p}{(}\PY{n}{event}\PY{o}{.}\PY{n}{muons}\PY{p}{)}
+\PY{k}{for} \PY{n}{i} \PY{o+ow}{in} \PY{n+nb}{range}\PY{p}{(}\PY{n}{n}\PY{p}{)}\PY{p}{:}
+  \PY{k}{for} \PY{n}{j} \PY{o+ow}{in} \PY{n+nb}{range}\PY{p}{(}\PY{n}{i}\PY{o}{+}\PY{l+m+mi}{1}\PY{p}{,} \PY{n}{n}\PY{p}{)}\PY{p}{:}
+    \PY{n}{m1} \PY{o}{=} \PY{n}{event}\PY{o}{.}\PY{n}{muons}\PY{p}{[}\PY{n}{i}\PY{p}{]}
+    \PY{n}{m2} \PY{o}{=} \PY{n}{event}\PY{o}{.}\PY{n}{muons}\PY{p}{[}\PY{n}{j}\PY{p}{]}
+    \PY{n}{mass} \PY{o}{=} \PY{n}{sqrt}\PY{p}{(}
+      \PY{l+m+mi}{2}\PY{o}{*}\PY{n}{m1}\PY{o}{.}\PY{n}{pt}\PY{o}{*}\PY{n}{m2}\PY{o}{.}\PY{n}{pt}\PY{o}{*}\PY{p}{(}
+      \PY{n}{cosh}\PY{p}{(}\PY{n}{m1}\PY{o}{.}\PY{n}{eta} \PY{o}{\PYZhy{}} \PY{n}{m2}\PY{o}{.}\PY{n}{eta}\PY{p}{)} \PY{o}{\PYZhy{}}
+      \PY{n}{cos}\PY{p}{(}\PY{n}{m1}\PY{o}{.}\PY{n}{phi} \PY{o}{\PYZhy{}} \PY{n}{m2}\PY{o}{.}\PY{n}{phi}\PY{p}{)}\PY{p}{)}\PY{p}{)}
+    \PY{n}{fill\PYZus{}histogram}\PY{p}{(}\PY{n}{mass}\PY{p}{)}
+\end{Verbatim}

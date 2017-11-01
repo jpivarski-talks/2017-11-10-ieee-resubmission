@@ -1,0 +1,9 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{k+kt}{int} \PY{n}{n} \PY{o}{=} \PY{n}{muons}\PY{p}{.}\PY{n}{size}\PY{p}{(}\PY{p}{)}\PY{p}{;}
+\PY{k}{for} \PY{p}{(}\PY{n}{i}\PY{o}{=}\PY{l+m+mi}{0}\PY{p}{;} \PY{n}{i} \PY{o}{\PYZlt{}} \PY{n}{n}\PY{p}{;} \PY{n}{i}\PY{o}{+}\PY{o}{+}\PY{p}{)}
+  \PY{k}{for} \PY{p}{(}\PY{n}{j}\PY{o}{=}\PY{n}{i}\PY{o}{+}\PY{l+m+mi}{1}\PY{p}{;} \PY{n}{j} \PY{o}{\PYZlt{}} \PY{n}{n}\PY{p}{;} \PY{n}{j}\PY{o}{+}\PY{o}{+}\PY{p}{)} \PY{p}{\PYZob{}}
+    \PY{n}{Muon}\PY{o}{*} \PY{n}{m1} \PY{o}{=} \PY{n}{muons}\PY{p}{[}\PY{n}{i}\PY{p}{]}\PY{p}{;}
+    \PY{n}{Muon}\PY{o}{*} \PY{n}{m2} \PY{o}{=} \PY{n}{muons}\PY{p}{[}\PY{n}{j}\PY{p}{]}\PY{p}{;}
+    \PY{k+kt}{double} \PY{n}{s} \PY{o}{=} \PY{n}{m1}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{pt} \PY{o}{+} \PY{n}{m2}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{pt}\PY{p}{;}
+    \PY{n}{fill\PYZus{}histogram}\PY{p}{(}\PY{n}{s}\PY{p}{)}\PY{p}{;} \PY{p}{\PYZcb{}}
+\end{Verbatim}

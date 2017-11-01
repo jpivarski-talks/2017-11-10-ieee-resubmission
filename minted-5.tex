@@ -1,0 +1,10 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{k+kt}{float} \PY{n}{maximum} \PY{o}{=} \PY{l+m+mf}{0.0}\PY{p}{;}
+\PY{n}{Muon}\PY{o}{*} \PY{n}{best} \PY{o}{=} \PY{k}{nullptr}\PY{p}{;}
+\PY{k}{for} \PY{p}{(}\PY{n}{i}\PY{o}{=}\PY{l+m+mi}{0}\PY{p}{;} \PY{n}{i} \PY{o}{\PYZlt{}} \PY{n}{muons}\PY{p}{.}\PY{n}{size}\PY{p}{(}\PY{p}{)}\PY{p}{;} \PY{n}{i}\PY{o}{+}\PY{o}{+}\PY{p}{)}
+  \PY{k}{if} \PY{p}{(}\PY{n}{muons}\PY{p}{[}\PY{n}{i}\PY{p}{]}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{pt} \PY{o}{\PYZgt{}} \PY{n}{maximum}\PY{p}{)} \PY{p}{\PYZob{}}
+    \PY{n}{maximum} \PY{o}{=} \PY{n}{muons}\PY{p}{[}\PY{n}{i}\PY{p}{]}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{pt}\PY{p}{;}
+    \PY{n}{best} \PY{o}{=} \PY{n}{muon}\PY{p}{;} \PY{p}{\PYZcb{}}
+\PY{k}{if} \PY{p}{(}\PY{n}{best} \PY{o}{!}\PY{o}{=} \PY{k}{nullptr}\PY{p}{)}
+  \PY{n}{fill\PYZus{}histogram}\PY{p}{(}\PY{n}{best}\PY{o}{\PYZhy{}}\PY{o}{\PYZgt{}}\PY{n}{eta}\PY{p}{)}\PY{p}{;}
+\end{Verbatim}

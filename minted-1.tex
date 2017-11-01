@@ -1,0 +1,13 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PY{k}{CREATE} \PY{k}{TYPE} \PY{n}{PARTICLE} \PY{k}{FROM}
+    \PY{n}{STRUCT}\PY{o}{\PYZlt{}}\PY{n}{pt}\PY{p}{:} \PY{n}{DOUBLE}\PY{p}{,}
+           \PY{n}{eta}\PY{p}{:} \PY{n}{DOUBLE}\PY{p}{,}
+           \PY{n}{phi}\PY{p}{:} \PY{n}{DOUBLE}\PY{o}{\PYZgt{}}\PY{p}{;}
+
+\PY{k}{CREATE} \PY{k}{TABLE} \PY{n}{events} \PY{p}{(}
+    \PY{n}{eventId} \PY{n+nb}{INT}\PY{p}{,}
+    \PY{n}{muons}   \PY{n+nb}{ARRAY}\PY{o}{\PYZlt{}}\PY{n}{PARTICLE}\PY{o}{\PYZgt{}}\PY{p}{,}
+    \PY{n}{jets}    \PY{n+nb}{ARRAY}\PY{o}{\PYZlt{}}\PY{n}{PARTICLE}\PY{o}{\PYZgt{}}\PY{p}{,}
+    \PY{k}{UNIQUE} \PY{k}{KEY} \PY{n}{eventId}
+\PY{p}{)}\PY{p}{;}
+\end{Verbatim}
