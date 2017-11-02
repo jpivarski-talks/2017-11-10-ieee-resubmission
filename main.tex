@@ -443,6 +443,7 @@
 % to submit to, of course. )
 
 \usepackage{flushend}
+\usepackage{hyperref}
 
 % correct bad hyphenation here
 \hyphenation{op-tical net-works semi-conduc-tor}
@@ -960,7 +961,7 @@ Related to the above, nested {\tt for} loops that exhaustively walk over List co
 \input{minted-1-5.tex}
 \end{minipage}
 \end{center}
-can be collapsed into a single {\tt for} loop over the innermost contents ({\tt x}). The innermost data are stored contiguously, so a single loop would suffice, and it is much more likely to be vectorized by the compiler. (A PLUR-unaware compiler cannot make this optimization because it does not know how list offset arrays are structured.)
+can be collapsed into a single {\tt for} loop over the innermost contents ({\tt x}). The innermost data are stored contiguously, so a single loop would suffice, and it is much more likely to be vectorized by the compiler. (A PLUR-unaware compiler cannot make this optimization because it does not know that list offset arrays are monotonically increasing.)
 
 \subsubsection{Fixed-size Arrays and Matrices}
 
@@ -1010,29 +1011,19 @@ As described in Section~\ref{type-system}, the PLUR type system only distinguish
 
 \section{Implementation}
 
-We are developing the OAMap toolkit\cite{oamap} as the execution engine of a HEP database/query system, but it is also usable on its own. This toolkit includes the code transformation function outlined above, which is intended for high-throughput processing, and proxy classes for low-latency exploration. The proxies are Python classes that yield data on demand, using Python {\tt property}, {\tt \_\_getitem\_\_}, and {\tt \_\_getattr\_\_} to emulate static data by loading data on demand (from memory, disk, or network, as necessary). These proxies most clostly resemble the work of Mattis {\it et al}.\ in PyPy\cite{columnarobjects}, except that PyPy is JIT-compiled on the fly, making the proxy and code transformation approaches equivalent. However, Numpy and CPython provide access to much-needed scientific libraries.
+We are developing the OAMap toolkit\cite{oamap} as the execution engine of a HEP database/query system, but it is also usable on its own. This toolkit includes the code transformation routine outlined above, which is intended for high-throughput processing, and proxy classes for low-latency exploration on the Python commandline. The proxies are Python classes that yield data on demand, using Python's {\tt property}, {\tt \_\_getitem\_\_}, and {\tt \_\_getattr\_\_} to emulate static members by fetching data (from memory, disk, or network) as necessary. These proxies most clostly resemble the work of Mattis {\it et al}.\ in PyPy\cite{columnarobjects}, except that PyPy is JIT compiled on the fly, making the proxy and code transformation approaches equivalent. However, Numpy and CPython provide access to much-needed scientific libraries.
 
-The use of proxies would also be equivalent to code transformation in a fully compiled language like C++. The propagation of PLUR type would be performed by the C++ compiler, rather than manually through a Python AST. However, C++ would not be a convenient query language. Julia would be an excellent compromise, but C++ and Python are much more commonly used in HEP.
+The use of proxies would also be equivalent to code transformation in a fully compiled language like C++. The propagation of PLUR type would be performed by the C++ compiler, rather than manually through a Python AST. However, C++ would not be a convenient query language, and type-level programming in C++ is not as powerful as direct AST manipulation. (For example, it might not be possible to collapse {\tt for} loops based on our knowledge that list offset arrays are monotonically increasing.) Julia would be an excellent compromise, as it is a high-level language without manual memory management, it automatically JIT compiles, and provides access to the Julia AST, but C++ and Python are much more commonly used in HEP.
 
-Nearly all HEP data are stored in ROOT files, so we must be able to read this format efficiently. We have implemented a modification to ROOT that allows us to skip ROOT's usual object materialization methods ({\tt TTree::GetEntry} and {\tt TBranch::GetEntry}) which we call BulkIO. These updates are scheduled to become part of the base ROOT distribution in version 6.14.
+Nearly all HEP data are stored in ROOT files, so we must be able to read this format efficiently. We have implemented a modification to ROOT, called BulkIO, that allows us to skip ROOT's usual object materialization methods ({\tt TTree::GetEntry} and {\tt TBranch::GetEntry}). These updates are scheduled to become part of the base ROOT distribution in ROOT version 6.14.
 
-Although the performance studies in the next section use ROOT with the BulkIO enhancements, this access method is also available in a pure Python package called uproot\cite{uproot}.
+Although the performance studies in the next section use ROOT with the BulkIO enhancements, this access method is also available as a pure Python package called uproot\cite{uproot}.
 
 \subsection{Performance Studies}
 
-As an execution engine, the transformed code must be convenient and fast. We chose Python over C++ for convenience and must not pay for that choice in performance. For this reason, we have been performance-testing OAMap throughout its development, comparing to ``bare metal'' speeds of one-off C functions. Numba compiles through LLVM without any Python objects at runtime (we set ``{\tt nopython}'' to true), so we have not observed any difference on equivalent functions, reading data from in-memory arrays.
+As an execution engine, the transformed code must be convenient and fast. We chose Python over C++ for convenience and must not pay for that choice in performance. For this reason, we have been performance-testing OAMap throughout its development, informally comparing against ``bare metal'' speeds of one-off C programs. We always use Numba with ``{\tt nopython=True},'' so the code it compiles with LLVM is almost perfectly equivalent to a C program compiled with Clang. Our informal tests bore this equivalence, but were unrealistically sourced with random data.
 
-However, the real-world use of OAMap must extract data from a file source and code transformation would be compared with present methods using object materialization. We therefore performed a detailed study of four typical HEP analysis functions in ROOT with object materialization ({\tt GetEntry}) and through transformed code without object materialization. The functions in ROOT are written in C++ for maximum performance and our code transformation applies to functions written in Python, yet are also compiled for bare metal performance. 
-
-
-
-
-
-The goal of this and the HEPQuery project is to make HEP analysis easier to develop and faster to run. We believe that broad type abstractions like PLUR and concise syntax like Python's are easier for data analysts to work with, especially when they are exploring a dataset and focusing on physics and statistics issues, rather than programming. We also intend to make the system as fast as or faster than idiomatic, object-oriented C++, so that analysts don't have to translate analysis code from a high-level language to a low-level one just to process a large dataset in a reasonable time. This is the allure of databases: SQL is as abstract as set theory and yet it is also faster than most procedural code.
-
-For this reason, we have been performance-testing PLUR all through its development, to avoid introducing performance gaffes at an early stage, and now perform an even-handed performance comparison between transformed PLUR code and industry-standard C++ in ROOT. We also break down the differences as much as possible to show where they come from.
-
-We consider four sample analysis functions, two of which (``max p$_{\mbox{\scriptsize T}}$'' and ``mass of pairs'') are from the motivation of this paper. Listings are given in Figure~\ref{four-functions}.
+Real-world uses of OAMap would be sourced with HEP data in ROOT files (or a database equivalent). The most relevant comparison then is between a C++ analysis function in ROOT, from ROOT data through object materialization, and an OAMap-transformed Python function, from ROOT data but accessed as in-place arrays. We used the BulkIO enhancements to stream data into Numpy arrays and OAMap to transform and then compile the same analysis functions. C++ and Python versions of the analysis functions are listed in Figure~\ref{four-functions}.
 
 \begin{figure}
 \scriptsize
@@ -1161,23 +1152,19 @@ The first, ``max p$_{\mbox{\scriptsize T}}$,'' is an example of a query that wou
 
 The second, ``eta of best by p$_{\mbox{\scriptsize T}}$,'' is an extension of that idea: we select a muon by maximizing {\tt pt} and then plot its {\tt eta}. This is even more awkward in SQL, but very common in HEP.
 
-In the listing, note that {\tt best}, which is a muon object, is initialized as $-1$ in Python and {\tt nullptr} in C++. The current implementation of the code transformer is missing a concept of ``undefined variable.'' It is also missing a thorough check on pre-transformation data types, so it doesn't complain about a variable being $-1$ in some cases and a Record object in others. Post-transformation, it is an array index, so $-1$ is allowed and doesn't correspond to any real objects. This is a leaky abstraction and will be corrected in future versions, but convenient for performance testing now.
+In the listing, note that {\tt best}, which is a muon object, is initialized as $-1$ in Python and {\tt nullptr} in C++. At the time of testing, the code transformer had no concept of a nullable PLUR type, though OAMap has this feature now. Instead of initializing the {\it object} as $-1$ and checking for that value as a negative index, we can now write it more naturally as {\tt None} and assigning the same variable as a muon Record and a number would be a compile-time error.
 
 The third function, ``mass of pairs,'' would require a full outer join in SQL but is a nested for loop in Python and C++, carefully indexed to avoid duplication. This kind of ``unique pairs'' loop is very common (often with a selection, e.g.\ requiring opposite-sign charges), and the {\tt mass} formula is one of the most frequently executed in HEP.
 
 The fourth, ``p$_{\mbox{\scriptsize T}}$ sum of pairs,'' is a diagnostic of the third. As we will show below, the mass calculation is the slowest of the sample functions, and it was unclear whether the nested indexing was responsible or the complex formula. This function has the same nesting structure but a simpler formula (one that is occasionally useful in HEP).
 
-We ran each analysis function on a 5.4 million event dataset of simulated Drell-Yan collisions (a realistic physics sample, one of about a dozen that might be involved in a real HEP analysis). The tests were performed on an {\tt i2.xlarge} instance on Amazon Web Services, which features a large, fast SSD (hundreds of MB/second, not a bottleneck in our tests).
+We ran each analysis function on a 5.4 million event dataset of simulated Drell-Yan collisions (a realistic physics sample, one of about a dozen that might be involved in a real HEP analysis). The tests were performed on an {\tt i2.xlarge} instance on Amazon Web Services, which features a large, fast SSD (though in the end, we opted for tests with prewarmed cache).
 
-Both tests, Python and C++, used ROOT to read the same data files. However, the Python test used the BulkIO feature to extract columnar array data without constructing event objects. The C++ code used the conventional interface, which further deserializes the columnar arrays as C++ objects.
+To avoid decompression and/or physical device access as a dominant contributor to these tests, we prepared an uncompressed ROOT file and loaded it into Linux page cache with vmtouch\cite{vmtouch}. This lets us see the differences due to other factors more clearly.
 
-One thing that ROOT's conventional interface does not do (but in general a framework might) is allocate memory for the event and muon objects during the event loop. Memory allocation recognized as a performance killer early in ROOT's development, so ROOT's default is to preallocate a buffer of 1000 muons and overwrite them at the start of each event, reallocating the buffer if necessary. (This never happened in our sample; the maximum number of muons was 36, which is far above the mean of 1--2.)
+Both tests were single-threaded and had plenty of working space memory. The benefits of parallelization are beyond the scope of this paper, and also factorize from our single-threaded tests. If we double the single-threaded speed of this embarrassingly parallel problem, we double the speed of a parallelized version (unless that parallel processor is swamped with overhead).
 
-Also, to avoid decompression or physical access being a dominant contributor to all tests, we prepared an uncompressed sample and loaded it into Linux page cache with vmtouch\cite{vmtouch}. This lets us see the differences due to other factors more clearly.
-
-Both tests were single-threaded and had plenty of working space memory.
-
-The results of the study are shown in Figure~\ref{root-and-plur}. The shorthand ``ROOT'' signifies a conventional ROOT workflow, using C++ user code, and ``PLUR'' is our workflow using the BulkIO interface in ROOT to expose columnar data as arrays and then run transformed Python code on those arrays.
+The results of the study are shown in Figure~\ref{root-and-plur}. The shorthand ``ROOT'' signifies a conventional ROOT workflow with object materialization and C++, and ``code transformation'' is our workflow with BulkIO, no object materialization, and transformed Python code.
 
 \begin{figure}[!t]
 \centering
@@ -1186,44 +1173,46 @@ The results of the study are shown in Figure~\ref{root-and-plur}. The shorthand 
 \label{root-and-plur}
 \end{figure}
 
-The four colors signify variants on these workflows. ``ROOT full dataset'' means we let ROOT fill all 42 attributes of the Muon objects, which is clearly unnecessary for our functions. The event processing rate for this case is 0.4~MHz, regardless of the content of the function. Reading and filling the objects overwhelms all other factors.
+The four colors signify variants on these workflows. ``ROOT full dataset'' means we let ROOT fill all 42 attributes of the Muon objects, which is clearly unnecessary for our functions. The event processing rate for this case is 0.4~MHz, regardless of the content of the function. Reading and filling the objects overwhelms all other factors. (This case is only included for completeness.)
 
-``ROOT selective on full'' uses ROOT's built-in mechanism to avoid filling all attributes in the objects, but still used the 42-field object definitions and original data file. The event processing rate is 1.29~MHz, regardless of the function. Handling all of the attributes still dominates.
+``ROOT selective on full'' uses ROOT's opt-in mechanism to avoid filling all attributes in the objects, but still used the 42-field object definitions and original data file. The event processing rate is 1.29~MHz, regardless of the function. Handling all of the attributes still dominates.
 
 ``ROOT slim dataset'' performs the same selective read on a specially prepared dataset and object definition that has only 3 fields: {\tt pt}, {\tt eta}, and {\tt phi}. We now see different rates for the four functions: 6.68, 5.96, 3.56, and 6.34~MHz.
 
-``PLUR full dataset'' is the only test in this batch that uses transformed Python code. It accesses the full dataset; the slim dataset yields similar results because this method is unconcerned with unused columns. The four functions are processed at 17.9, 12.1, 6.09, and 17.2~MHz, respectively, considerably faster than the C++.
+``Code transformation on full ROOT dataset'' is the only test in this batch that uses transformed Python code. It accesses the full dataset; the slim dataset yields similar results because this method is unconcerned with unused columns. The four functions are processed at 17.9, 12.1, 6.09, and 17.2~MHz, respectively, considerably faster than object materialization.
 
 The slowest of the four functions is ``mass of pairs.'' Unlike the first two functions, this involves a doubly nested loop over muons to find distinct pairs, as well as a much more complex formula. The fourth function has the same loop structure without the complex formula, and it is as fast as the single loops. Upon further investigation, we found that the trigonometric and hyperbolic cosines account for the majority of the time spent in this function.
 
-The factor that the ROOT tests and PLUR test had in common is that they both extracted data from ROOT files and used part of the ROOT framework to read them. PLUR can operate on any arrays, regardless of whether they came from ROOT, so we performed another test in which we extracted all the data as Numpy arrays and read them from SSD disk or memory into the transformed Python code. These results are presented in Figure~\ref{physical-media} as ``raw SSD disk'' and ``raw memory.'' The ``PLUR full dataset'' measurements are redrawn in this plot to clarify the change in scale.
+The factor that the ROOT tests and OAMap test had in common is that they both extracted data from ROOT files and used part of the ROOT framework to read them. OAMap can operate on any arrays, regardless of whether they came from ROOT, so we performed another test in which we extracted all the data as Numpy arrays in memory. The ROOT files were in memory, too, because we prewarmed the Linux cache with vmtouch, but some processing is still required to seek to the relevant parts of the file to expose the arrays.
+
+We compare the OAMap result (copied from the previous plot on the new scale) from ROOT and from raw arrays in Figure~\ref{physical-media} for two reasons: (1) it shows just how much room there is between these execution rates and the data-access rate, since somewhat more complex functions will be slower and we want to know when to expect it to be a bottleneck, and (2) because a HEP database system would conceivably cache frequently accessed arrays in memory, and this shows the difference between a cache-hit and a cache-miss. The effect of the slow mass calculation is dramatic: ``mass of pairs'' runs at 12.8~MHz while ``p$_{\mbox{\scriptsize T}}$ sum of pairs'' runs at 56.2~MHz.
 
 \begin{figure}[!t]
 \centering
 \includegraphics[width=\linewidth]{physical-media.pdf}
-\caption{Event processing rates for the same four analysis functions, but only for PLUR workflows. Colors represent data sources: full ROOT dataset, raw Numpy files on SSD disk, and Numpy arrays in memory.}
+\caption{Event processing rates for the same four analysis functions, but only for PLUR workflows. Colors represent data sources: full ROOT dataset and Numpy arrays in memory.}
 \label{physical-media}
 \end{figure}
 
-When the data are in memory, we see only the calculation cost with no I/O. The effect of the slow mass calculation is dramatic: ``mass of pairs'' runs at 12.8~MHz while ``p$_{\mbox{\scriptsize T}}$ sum of pairs'' runs at 56.2~MHz. Reading from this SSD disk and performing the calculation is 1.6--3.3 times slower than just performing the calculation.
-
-This is relevant because the HEPQuery system is being designed with a two-layer cache: frequently accessed columns will stay in memory, less frequently accessed columns will be paged to an SSD disk like this one, and infrequent or first-time requests will be extracted from ROOT files using BulkIO.
-
 \section{Conclusions}
 
-We have demonstrated that it is possible to transform code to meet a data format, rather than deserializing data to fit the code's expectations, as long as JIT compilation is available. We have also demonstrated that, once transformed and compiled, a Python analysis function outperforms the same function written in idiomatic C++.
+We have demonstrated that it is possible to transform code to meet a data format, rather than deserializing data to fit the code's expectations, as long as JIT compilation is available. We have also demonstrated that, once transformed and compiled, an idiomatic Python analysis function outperforms the same function written in idiomatic C++ with object materialization.
 
-On the surface, this is almost unthinkable--- C++ is supposed to be much faster than an abstract language like Python--- that's why HEP data analysts go to great effort to port their Pythonic explorations into C++. However, our code transformation and Numba's bytecode compilation have eliminated Python's disadvantages and given it an advantage not shared by the idiomatic C++, skipping object deserialization. This procedural code is one step closer to behaving like a database query.
+This should not be taken as a claim that Python is faster than C++, just as SQL is not faster than C++, but that we have applied one of the tools used by databases to accelerate queries to a general-purpose language. The compilation of Python by Numba provides parity between a restricted subset of Python (statically typable, no first-class functions) and C++, and the code transformation avoids the cost of object materialization. In principle, the same speedup could be achieved in C++ or Julia with the appropriate proxy classes.
 
-In HEP, we plan to use this tool as part of a database-like query server, delivering analysis results in response to queries written in Python. The PLUR data representation gives us the ability to represent large Lists of HEP events, possibly with deeply nested hierarchies and pointer cross-references, as well as random access to non-event data. Possible uses for non-event data include lookup tables, calibration constants, boosted decision trees and neural nets.
+%% On the surface, this is almost unthinkable--- C++ is supposed to be much faster than an abstract language like Python--- that's why HEP data analysts go to great effort to port their Pythonic explorations into C++. However, our code transformation and Numba's bytecode compilation have eliminated Python's disadvantages and given it an advantage not shared by the idiomatic C++, skipping object deserialization. This procedural code is one step closer to behaving like a database query.
 
-The use of columns for data granularity, rather than files that contain columns, opens up possibilities for better efficiency in data storage. It is fairly common for a HEP dataset to undergo several revisions, in which derived quantities are progressively corrected with new knowledge. Currently, each new version requires as much disk space as the previous one, which is wasteful if only a few attributes change. With column granularity, a new dataset can be defined using some new and some old columns, like structural sharing in immutable data structures or version control systems like git. Additionally, analysts would be more free to experiment with different event selections if each is just a single column that points to a shared set of publicly accessible events, rather than a copy of a subset of rows.
+%% In HEP, we plan to use this tool as part of a database-like query server, delivering analysis results in response to queries written in Python. The PLUR data representation gives us the ability to represent large Lists of HEP events, possibly with deeply nested hierarchies and pointer cross-references, as well as random access to non-event data. Possible uses for non-event data include lookup tables, calibration constants, boosted decision trees and neural nets.
 
-But perhaps most importantly, the usefulness of this technique is not limited to HEP. The need for complex loop dependencies can hardly be HEP-specific. Although many industries and fields of academia are currently using SQL or languages similar to SQL for data analysis, how much is being left unexplored because the tools are not suited for the task?
+%% The use of columns for data granularity, rather than files that contain columns, also opens possibilities for better efficiency in data storage. It is fairly common for a HEP dataset to undergo several revisions, in which derived quantities are progressively corrected with new knowledge. Currently, each new version requires as much disk space as the previous one, which is wasteful if only a few attributes change. With column granularity, a new dataset can be defined using some new and some old columns, like structural sharing in immutable data structures or version control systems like git. Additionally, analysts would be more free to experiment with different event selections if each is just a single column that points to a shared set of publicly accessible events, rather than a copy of a subset of rows.
+
+%% The direct use of columns in execution is related to the use of columns in data management, which has been fully exploited in tabular datasets but less so for hierarchically nested data, especially in HEP. Collections of related columns do not need to be file-bound objects, as they are in ROOT and Parquet files. In principle, a nested object mapped to arrays may be described by arrays from different sources, such as a user generating jet energy corrections as a single array and blending it with the source dataset to make a new version with corrected energies. Old and new versions of datasets may share common data. Even skims (filtered data) can be supported using database-style stencils. Code execution on columnar arrays is part of a larger program.
+
+Finally, the usefulness of this technique is not limited to HEP. The need for complex loop dependencies can hardly be HEP-specific\footnote{As an indication of this need, Netflix proposed changes to Spark to allow higher-order functions in SparkSQL, which would transform subcollections without a full explode-and-join: \url{https://issues.apache.org/jira/browse/SPARK-22231}}. Although many industries and fields of academia are currently using SQL or languages similar to SQL for data analysis, how much is being left unexplored because the tools are not suited for the task?
 
 It is our hope that this technique finds application in many different fields, just as the techniques of database-style analysis have inspired our work in HEP.
 
-\section*{Acknowledgment}
+\section*{Acknowledgments}
 
 This work was supported by the National Science Foundation under Grants No.\ 1450377 and 1450323. The authors wish to thank Philippe Canal for his expert help in understanding the ROOT file format and ROOT I/O subsystem.
 
