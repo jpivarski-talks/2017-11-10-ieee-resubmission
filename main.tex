@@ -1020,7 +1020,9 @@ Although the performance studies in the next section use ROOT with the BulkIO en
 
 \subsection{Performance Studies}
 
+As an execution engine, the transformed code must be convenient and fast. We chose Python over C++ for convenience and must not pay for that choice in performance. For this reason, we have been performance-testing OAMap throughout its development, comparing to ``bare metal'' speeds of one-off C functions. Numba compiles through LLVM without any Python objects at runtime (we set ``{\tt nopython}'' to true), so we have not observed any difference on equivalent functions, reading data from in-memory arrays.
 
+However, the real-world use of OAMap must extract data from a file source and code transformation would be compared with present methods using object materialization. We therefore performed a detailed study of four typical HEP analysis functions in ROOT with object materialization ({\tt GetEntry}) and through transformed code without object materialization. The functions in ROOT are written in C++ for maximum performance and our code transformation applies to functions written in Python, yet are also compiled for bare metal performance. 
 
 
 
