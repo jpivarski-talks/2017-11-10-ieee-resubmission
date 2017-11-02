@@ -453,7 +453,7 @@
 %
 % paper title
 % can use linebreaks \\ within to get better formatting as desired
-\title{Fast Access to Columnar, Hierarchical Data via Code Transformation}
+\title{Fast Access to Columnar, Hierarchically Nested Data via Code Transformation}
 
 
 % author names and affiliations
@@ -681,9 +681,11 @@ Big data applications; Automatic programming; Data analysis; Scientific computin
 
 \section{Motivation}
 
-Analysis procedures can be roughly categorized by whether they are easily expressed as transformations of data tables into new tables, by SQL or an SQL variant, rather than a general-purpose programming language. We must emphasize that ``easily expressed'' is subjective, and therefore illustrate with progressively more complex examples.
+Data analysts in High Energy Physics (HEP) routinely deal with terabyte and petabyte scale datasets, but access them as objects persisted in files, rather than using databases. Thus, they miss out on advantages enjoyed by data analysts in other fields, such as automatic scale-out, data replication, indexing for faster selections, and term rewriting and query planning of high-level queries.
 
-Suppose we have High Energy Physics (HEP) data in a table with the following schema.
+A major reason for this is that HEP data do not fit any of the existing database models, including non-relational (NoSQL) ones: HEP data are hierarchically nested with arbitrary-length collections within collections, not the rectangular table served well by SQL (except perhaps at the very last stage of processing). This feature suggests a document store like MongoDB\cite{mongodb}, except that HEP data have regular structure that is sparsely accessed: only a few of the hundreds of attributes of objects within objects are needed at a time, which would be better served by typed columnar storage, rather than schemaless document storage. Unlike key-value tables, HEP data must be scanned in bulk; unlike graph databases, HEP data cross-linking is limited to small, disconnected graphs called ``events'' no larger than hundreds of kilobytes.
+
+Furthermore, most of the well-known database systems use SQL or an SQL variant as the query language, but even the simplest HEP analysis functions are awkward and possibly hard to optimize as SQL. HEP analysis functions typically iterate over combinations of objects in different subcollections within each event, which would require multiple SQL explodes and joins. Although the hierarchically nested structure can be described by a modern SQL schema,
 
 \vspace{0.15 cm}
 %% \begin{minted}{sql}
