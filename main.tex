@@ -71,7 +71,7 @@
 
 \usepackage{mathtools}
 
-%% \usepackage{minted}
+% \usepackage{minted}
 
 \usepackage{fancyvrb}
 \usepackage{color}
@@ -846,47 +846,48 @@ There are several constraints on the code to be transformed. It cannot create or
 
 The following AST nodes must be transformed:
 \begin{itemize}
-\item {\bf symbol reference}, which might be a PLUR object;
-\item {\bf assignment}, which might pass PLUR type and prefix to a new symbol;
-\item {\bf list subscript} (square brackets in most languages), which can dereference a PLUR List;
-\item {\bf attribute subscript} (dot in most languages), which can dereference a PLUR Record;
-\item {\bf function calls}, which can pass PLUR types and prefixes to a new function, widening the scope of the transformation sweep to include that function, and may return a PLUR type/prefix that must be tracked;
+\item {\bf symbol reference}, which might have PLUR type;
+\item {\bf assignment}, which can pass PLUR type from an expression to a new symbol;
+\item {\bf list subscript} (square brackets in most languages), which might slice or extract from a PLUR List;
+\item {\bf attribute subscript} (dot in most languages), which might extract a field from a PLUR Record;
+\item {\bf function calls}, which can pass PLUR types to a new function, widening the scope of the transformation sweep to include that function, and may return a new PLUR type/prefix that must be tracked;
+\item {\bf for loops} which might iterate over a PLUR List;
 \item {\bf special functions}, like {\tt len} (List length) and {\tt isinstance} (check type) in Python, which have to be handled in special ways when called on PLUR types.
 \end{itemize}
 
-Any use of a PLUR type that isn't specially handled must be treated as an error to avoid misinterpretations. Since this transformation sweep is performed on an AST, often before the transformed code is further transformed by a low-level compiler, these errors would appear to the user as compilation errors, preferably with line numbers and meaningful error messages.
+Any use of a PLUR-typed object that isn't specially handled must be treated as an error to avoid incorrect code, since these objects are replaced by plain integers at runtime. These errors would appear to the user as compilation errors, with line numbers and meaningful error messages.
 
 \subsection{Required Transformations}
 
-{\bf Symbol references} are leaves of the AST and therefore first to be transformed in the recursive walk. In the original function, an identifier that refers to a PLUR object becomes an identifier for its integer index, so a symbol reference becomes array extraction.
+{\bf Symbol references} are leaves of the AST and therefore first to be transformed in the recursive walk. In the original function, an identifier that refers to a PLUR-typed object becomes an identifier for its integer index, so a symbol reference becomes array extraction.
 
 For Primitive and List types:
 \begin{center}
 {\tt x} (referring to object) $\to$ {\tt array[x]} ({\tt x} is index)
 \end{center}
-where {\tt array} is the only array associated with a Primitive and the list offset associated with a List.
+where {\tt array} is the array associated with a Primitive or the offset array associated with a List.
 
-Unions immediately resolve to their specific type (unless you require the user to ``unpack'' opaque Union objects with a function). This is most easily handled by (1) creating a new symbol in the transformed code to hold the tag value and (2) checking each tag possibility, returning the offset of the appropriate one:
+Unions immediately resolve to their specific type. This is most easily handled by (1) creating a new symbol in the transformed code to hold the tag value and (2) checking each tag possibility, returning the offset of the appropriate one:
 \begin{center}
 {\tt x} $\to$ {\tt t $\coloneqq$ tag[x]; if (t == 0) off[x] \ldots}
 \end{center}
-This is more difficult in languages like Python, which do not allow assignment in an expression (the symbol reference can appear anywhere in an expression); see our Python implementation\cite{plur} for the work-around.
+Python does not allow assignment in an expression (and the symbol reference may appear anywhere in an expression), so we implement it by generating a new function and adding call to that new function. Depending on LLVM's heuristics, Numba might inline that function call.
 
-References to Record symbols do not require any transformation at all, though they are reinterpreted as indices to be passed to fields.
+References to Record symbols do not require any transformation, though they are reinterpreted as indices that would be passed to their fields when subscripting (see below).
 
 {\bf Assignment} merely passes the PLUR type and associated array names to a new symbol. In the type-inference pass, this means adding the type information to a symbol table.
 
-Assignment is more complex if you try to handle pattern matching, such as Python's tuple unpacking (see ``Flourishes'' below).
+Assignment is more complex if one tries to handle pattern matching, such as Python's tuple unpacking (see ``Flourishes'' below).
 
 {\bf List subscripts} replace a List index with a Primitive value if it is a List of Primitives or the index of the next substructure down if it is any other type. This can be performed in two steps: (1) transform
 \begin{center}
 {\tt x[i]} $\to$ {\tt off[x + i]}
 \end{center}
-and then (2) transform the result of this as though it were a symbol reference (rule described above) using the List's item type.
+and then (2) transform the result of this as though it were a symbol reference (rule described above) using the List's contained type.
 
 An attempt to subscript any PLUR type other than a List is an error. The above only works if the index resolves to integer type, not (for example) a Python {\tt slice}. Handling slices would be considered a flourish.
 
-{\bf Attribute subscripts} extract a field from a Record by name. In most languages, the field names are syntactically required to be a string known at compile-time with constraints on the characters (usually, ``-'' is not allowed).
+{\bf Attribute subscripts} extract a field from a Record by name. In most languages, the field names are syntactically required to be a string known at compile-time with constraints on the characters.
 
 We do this transformation in two steps, like the list subscript above: (1) transform
 \begin{center}
@@ -896,13 +897,21 @@ and then (2) transform the result of this as though it were a symbol reference (
 
 An attempt to subscript any PLUR type other than a Record is an error.
 
-{\bf Function calls} can either include non-Primitive PLUR types in their arguments or not. If a function call does not reference any non-Primitive PLUR types, it can be left as-is (after transforming the arguments).
+{\bf Function calls} may include non-Primitive PLUR types in their arguments or not. If a function does not take any non-Primitive PLUR types as arguments, it can be left as-is.
 
-If it references non-PLUR types, then we must obtain the AST for that function and propagate PLUR types through it, starting with the argument types. If the function has previously been transformed, then the transformed copy may be reused only if the argument types (and array prefixes) are the same as before. We are treating all functions as though they were type-parameterized in every argument because different array prefixes require different code transformations.
+If it references non-PLUR types, then we must obtain the AST for that function and propagate PLUR types through it, starting from the argument types. If the function has previously been transformed with the same types, we may reuse the previously transformed function (as long as we pass array names as its new arguments). If it was transformed with different types, we must generate a new transformed copy of the function, propagating the new PLUR types through it. We are effectively treating the function as though it were type-parameterized in every argument, the way that Julia\cite{julia} does with functions that don't have type annotations.
 
-If a function is recursive, then this process will only terminate if previous transformations of the function are saved and reused for the same type arguments. It is not merely an optimization to reuse transformed functions!
+For example, a {\tt mass} function that takes two arguments, {\tt particle1} and {\tt particle2}, would be transformed twice if called with ({\tt Muon}, {\tt Muon}) types at one site and ({\tt Muon}, {\tt Jet}) at another. The second transformation verifies that the {\tt Jet} Record has all the required fields to calculate a mass.
 
-A function may return PLUR type; the transformed version is either a Primitive or an integer index that must be propagated from the point of the function call in the original code.
+If a function is recursive, this process would not terminate without return-type hints (e.g.\ for any legal inputs, {\tt mass} returns a floating-point number). Refusing to transform recursive functions would not overly restrict HEP analysis functions, though Python 3's type annotations may be helpful for such cases.
+
+A function may return PLUR type; the transformed function either returns a Primitive or an integer index that must be propagated from the call point in the original function.
+
+{\bf For loops} may iterate over a PLUR List. The transformed List is just an integer index for the offset array, so it must be replaced by an iterator over offsets:
+\begin{center}
+{\tt x} $\to$ {\tt range(array[x], array[x + 1])}
+\end{center}
+The loop variable is now an integer representing indices into the List's contents, as desired.
 
 {\bf Special functions} that return meaningful data about non-Primitive PLUR types must be handled on a case-by-case basis. As with any function call, if a non-Primitive PLUR type is an argument, the function's identity must be known during the transformation sweep. Below are two important cases.
 
@@ -910,81 +919,112 @@ A function may return PLUR type; the transformed version is either a Primitive o
 \begin{center}
 {\tt len(x)} $\to$ {\tt off[x + 1] - off[x]}
 \end{center}
-(applied without transforming the argument {\tt x}, or by reverse-engineering an applied transformation).
+{\it without} transforming the argument {\tt x} (unlike other function calls, which operate on transformed arguments).
 
 {\bf isinstance}: (check type) must return true if the argument has a given type, false otherwise. Since references to non-Primitive PLUR types have all been replaced with integer indices, a naive application of the {\tt isinstance} function would say that they are all integers, contrary to a user's expectation.
 
-The type or types to check must be known as literal names, not computed references, during the transformation sweep. If the argument to check has List or Record type, the whole expression should be replaced with true or false depending on whether the desired types are in the set of types to check. If it is a Union, it must be replaced with a tag check.
+The type or types to check would have to be known as literal names, not computed references, during the transformation sweep. If the argument to check has List or Record type, the whole expression can be statically replaced with a literal {\tt True} or {\tt False}, depending on whether the desired types are in the set of types to check. If it is a Union, it must be replaced with a tag check.
 
 \subsection{Flourishes}
 
-Depending on your needs, you can provide more or less support for PLUR objects in the transformed code. The only invariant is that the transformed code must either work exactly as object-oriented code would or fail to be transformed (compilation error).
+The implementation of the code transformation is open-ended: one can provide more or less support for PLUR-typed objects, as well as optimizations. The only invariant is that the transformed code must either work exactly as object-oriented code would or fail to be transformed (compilation error).
 
 \subsubsection{List Overflows}
 
 One special case requires special attention: what to do about List index overflows? In the minimal transformation described above, PLUR List overflows behave like C array overflows, in that they return undefined results. The errors are less obvious and therefore more dangerous than typical C array overflows because PLUR values just beyond a List's boundary belong to the same attribute in the next List, so they probably have the right scale and distribution, subtly biasing analysis results.
 
-A simple way to eliminate mistakes like this is to add a range check to the transformed code. Indices that fail the range check should raise a runtime exception. It would be correct, but many of these range checks would be unnecessary and would slow down processing. For instance, the list subscript could be in the body of an {\tt if} statement where the user did range-checking manually, or it could be in a {\tt for} loop bounded by the list length (a very common case), or it could be a {\tt foreach} node (Python {\tt for}) that has been transformed from objects to indices (another flourish).
+A simple way to eliminate mistakes like this is to add a range check to the transformed code. Indices that fail the range check should raise a runtime exception. It would be correct, but many of these range checks would be unnecessary and would slow down processing. For instance, the list subscript might be in the body of an {\tt if} statement where the user did range-checking manually, or it could be in a {\tt for} loop bounded by the list length (a common case).
 
-Since we are performing type-inference anyway, we could track intervals of validity for expressions that appear in list subscripts. This is known as a dependent type check, and for our case the validity endpoints should be symbolic: literal integers or $\ell_T$ symbols for the length of List type/array prefix $T$. The symbolic algebra includes only inequality operators, addition and subtraction, logical operators, and restrictions in {\tt if}-{\tt else} blocks. If the expression in a list subscript is not provably between 0 (inclusive) and $\ell_T$ (exclusive), a compilation error tells the user about the possibility of List overflows and refuses to transform the code.
+A conservative approach would be to apply range checking by default and remove it from unnecessary cases as they are identified. The performance tests in the last section have no range checks, but the OAMap library has range checking at the time of writing.
+
+%% Since we are performing type-inference anyway, we could track intervals of validity for expressions that appear in list subscripts. This is known as a dependent type check, and for our case the validity endpoints should be symbolic: literal integers or $\ell_T$ symbols for the length of List type/array prefix $T$. The symbolic algebra includes only inequality operators, addition and subtraction, logical operators, and restrictions in {\tt if}-{\tt else} blocks. If the expression in a list subscript is not provably between 0 (inclusive) and $\ell_T$ (exclusive), a compilation error tells the user about the possibility of List overflows and refuses to transform the code.
 
 \subsubsection{Pythonic Indices}
 
-Negative index handling in Python would be another flourish, which complicates the above.
-
-\subsubsection{Fixed-size Arrays and Matrices}
-
-PLUR Lists can have any length, which includes a constant length, at the expense of having redundant offset arrays. The size array for a fixed-length List is filled with identical values, which is very compressible, but must be expanded to full length for random access.
-
-It would be possible to add the concept of a fixed-length List to the type system, along with a naming convention so that this type can be encoded in array names, rather than arrays. In place of an array lookup in the transformed code, one would insert a literal multiplication.
+Negative index handling in Python is a user-familiarity enhancement, in which negative values start counting from the end of the list. Without this enhancement, negative indices would be caught by a range check, so it is not strictly required. Without a range check, it is extremely dangerous, as users would get subtly wrong results by assuming normal Pythonic behavior. (Pythonic indices are currently implemented in OAMap.)
 
 \subsubsection{Eliminating Zero-Lookups}
 
 As an optimization, one can statically identify array lookups that always return zero: the first element of every list offset array is zero, and the outermost list offset array is always evaluated at its first element. Without explicitly removing it, this unnecessary code would be executed at every step in an iteration over a List. (PLUR-unaware compilers cannot remove it.)
 
+\subsubsection{For loop flattening}
+
+Related to the above, nested {\tt for} loops that exhaustively walk over List contents, such as
+%% \begin{minted}{python}
+%% for inner in outer:
+%%   for x in inner:
+%%     do_something(x)
+%% \end{minted}
+\begin{center}
+\begin{minipage}{0.8\linewidth}
+\input{minted-1-5.tex}
+\end{minipage}
+\end{center}
+can be collapsed into a single {\tt for} loop over the innermost contents ({\tt x}). The innermost data are stored contiguously, so a single loop would suffice, and it is much more likely to be vectorized by the compiler. (A PLUR-unaware compiler cannot make this optimization because it does not know how list offset arrays are structured.)
+
+\subsubsection{Fixed-size Arrays and Matrices}
+
+PLUR Lists can have any length, which includes a constant length, at the expense of redundant offset arrays with linearly increasing contents.
+
+It would be possible to add the concept of a fixed-length List to the type system and propagate its implementation through OAMap and the code transformation rules. However, an important special case in which the fixed-length dimensions directly contain Primitives is available for free by accepting Numpy arrays with multidimensional {\tt shape} parameters as Primitives.
+
 \subsubsection{Type Constructors}
 
-As stated above, passing a non-Primitive PLUR object to any unrecognized function is a compilation error. This especially includes constructors for dynamic objects like Python lists and dictionaries, since we cannot statically track where they are used. However, you may wish to allow some immutable objects to include PLUR objects, such as Python tuples to use Python tuple-unpacking in assignments. You then become obliged, however, to track these objects as containing PLUR types.
+As stated above, passing a non-Primitive PLUR object to any unrecognized function is a compilation error. This especially includes constructors for dynamic objects like Python lists and dictionaries, since we cannot statically track where they are used. However, one may wish to allow some immutable objects to contain PLUR objects, such as Python tuples to allow Python tuple-unpacking in assignments. We then become obliged, however, to track these objects as containing PLUR types.
 
 \subsubsection{Pattern Matching}
 
-More generally than Python's tuple-unpacking, your target language may feature pattern-matching, and you may need to track PLUR types through syntactical structures like these.
+Some languages make extensive use of typed pattern matching; PLUR types would need to be tracked through syntactical structures such as these. In Python, tuple-unpacking is the most obvious instance of pattern-matching, and type inference through it is possible (implemented in the version of OAMap used in these tests).
 
 \subsubsection{Equality and Order}
 
-PLUR objects have a natural definition for value-based equality, so you may want to support the {\tt ==} operator as a recursive object comparison. Reference-based equality (``{\tt is}'' in Python) is even easier: just verify that the indices are equal (in Python, replace ``{\tt is}'' with ``{\tt ==}'').
+Since PLUR types describe inert data (as opposed to functions or active elements like file handles), it would be reasonable to define value-based equality and possibly an ordering, effectively treating comparison operators like ``{\tt ==}'' and ``{\tt <}'' as special functions (as well as ``{\tt sorted}'').
 
-For identical types, there may be a natural ordering as well: Python defines an ordering on structures like Lists and Records. You can similarly support inequality operators and the ``{\tt sorted}'' function.
+Reference-based equality, expressed in Python as an ``{\tt is}'' operator, is easiest to implement. For objects typed at identical nodes of the PLUR schema, references are the same if their indices are equal. At compile-time, this is a schema comparison, and at runtime, we replace ``{\tt is}'' with ``{\tt ==}''.
 
 \subsubsection{Fallback to Object Materialization}
 
 One way to support particularly difficult cases, such as external functions without code transformation, is by materializing objects using the arrays-to-objects algorithm. This gives up on zero-copy efficiency, but it may be worthwhile to mix fast code with expressive code. Then, rather than new features allowing specific cases of user code to run at all, new features would allow the user code to run faster.
 
-\subsubsection{Runtime Types}
+\subsubsection{Function dispatch}
 
-As described in Section~\ref{type-system}, basic types described only in terms of Primitive, List, Union, and Record generators should be augmented by higher-level interpretations of these types, distinctions that are relevant for runtime behavior, not data packing. These runtime types would be implemented at this level.
+As described in Section~\ref{type-system}, the PLUR type system only distinguishes between storage types. If the same storage type with different names should be dispatched to different functions or different versions of a function, that would be handled in code transformation. As with special functions ({\tt len} and {\tt isinstance}), the identities of these functions must be known at compile-time.
 
-For instance, a String or UTF8String type would be admissible to functions that {\tt capitalize} and {\tt lower}, but List$\langle${\tt byte}$\rangle$ would not. The former would be implemented as a special function, like {\tt len} and {\tt isinstance}. Pointers should either be transparently dereferenced (can cause infinite loops) or opaquely with a special function or syntax.
+%% \section{Implementation}
+
+%% We are developing OAMap and code transformation tools\cite{plur} for use in a HEP query system\cite{hepquery}. The code is in an early but usable state as documented by the text on the GitHub READMEs.
+
+%% Both are Python projects, and the code transformation implemented in the PLUR package is written in Python, transforming Python code. The short-term goal is to build a query system that uses Python as its query language, with a long term goal of developing a declarative query language on top of PLUR.
+
+%% \subsection{Pythonic PLUR}
+
+%% All of the ``required transformations'' (described above) have been implemented except for function calls and the {\tt isinstance} special function. Of the ``flourishes,'' zero-lookups have been eliminated and tuple-unpacking assignments has been implemented. The problem of implementing Union symbol references has been solved by passing nested closures through the transformation sweep.
+
+%% This PLUR package optionally passes the transformed code to Numba\cite{numba} for an even greater speedup. Although Numba's conversion of Python code to native bytecode results in a much larger speedup factor than PLUR's transformation step alone, the Numba step wouldn't be possible without the PLUR step. The PLUR transformation replaces opaque Python objects with integers and array lookups, which fit squarely in Numba's vocabulary.
+
+%% \subsection{Columnar Data from ROOT}
+
+%% The ROOT file format is the universal standard for HEP. Fortunately for our application, ROOT can store hierarchical data in a columnar fashion, smoothing the transition to PLUR. Most of these arrays can be imported without modification. The one exception is that Lists are represented in ROOT with size arrays, rather than offset arrays, so we apply the transformation described in Section~\ref{random-access-and-redundancy}.
+
+%% ROOT is a C++ framework providing an object-oriented interface, so we also had to bypass part of its deserialization procedure to get the raw arrays directly into PLUR. In a fork of the ROOT project\cite{bulkio}, we added methods to {\tt TBranch} (ROOT's data column) to extract arrays after decompression but before object materialization, as well as methods to expose these as Numpy arrays in Python. These enhancements, known as BulkIO, are being merged into the main ROOT repository with the intention of being included in ROOT version 6.12.
 
 \section{Implementation}
 
-We are developing PLUR and code transformation tools\cite{plur} for use in a HEP query system\cite{hepquery}. The code is in an early but usable state as documented by the text on the GitHub READMEs.
+We are developing the OAMap toolkit\cite{oamap} as the execution engine of a HEP database/query system, but it is also usable on its own. This toolkit includes the code transformation function outlined above, which is intended for high-throughput processing, and proxy classes for low-latency exploration. The proxies are Python classes that yield data on demand, using Python {\tt property}, {\tt \_\_getitem\_\_}, and {\tt \_\_getattr\_\_} to emulate static data by loading data on demand (from memory, disk, or network, as necessary). These proxies most clostly resemble the work of Mattis {\it et al}.\ in PyPy\cite{columnarobjects}, except that PyPy is JIT-compiled on the fly, making the proxy and code transformation approaches equivalent. However, Numpy and CPython provide access to much-needed scientific libraries.
 
-Both are Python projects, and the code transformation implemented in the PLUR package is written in Python, transforming Python code. The short-term goal is to build a query system that uses Python as its query language, with a long term goal of developing a declarative query language on top of PLUR.
+The use of proxies would also be equivalent to code transformation in a fully compiled language like C++. The propagation of PLUR type would be performed by the C++ compiler, rather than manually through a Python AST. However, C++ would not be a convenient query language. Julia would be an excellent compromise, but C++ and Python are much more commonly used in HEP.
 
-\subsection{Pythonic PLUR}
+Nearly all HEP data are stored in ROOT files, so we must be able to read this format efficiently. We have implemented a modification to ROOT that allows us to skip ROOT's usual object materialization methods ({\tt TTree::GetEntry} and {\tt TBranch::GetEntry}) which we call BulkIO. These updates are scheduled to become part of the base ROOT distribution in version 6.14.
 
-All of the ``required transformations'' (described above) have been implemented except for function calls and the {\tt isinstance} special function. Of the ``flourishes,'' zero-lookups have been eliminated and tuple-unpacking assignments has been implemented. The problem of implementing Union symbol references has been solved by passing nested closures through the transformation sweep.
-
-This PLUR package optionally passes the transformed code to Numba\cite{numba} for an even greater speedup. Although Numba's conversion of Python code to native bytecode results in a much larger speedup factor than PLUR's transformation step alone, the Numba step wouldn't be possible without the PLUR step. The PLUR transformation replaces opaque Python objects with integers and array lookups, which fit squarely in Numba's vocabulary.
-
-\subsection{Columnar Data from ROOT}
-
-The ROOT file format is the universal standard for HEP. Fortunately for our application, ROOT can store hierarchical data in a columnar fashion, smoothing the transition to PLUR. Most of these arrays can be imported without modification. The one exception is that Lists are represented in ROOT with size arrays, rather than offset arrays, so we apply the transformation described in Section~\ref{random-access-and-redundancy}.
-
-ROOT is a C++ framework providing an object-oriented interface, so we also had to bypass part of its deserialization procedure to get the raw arrays directly into PLUR. In a fork of the ROOT project\cite{bulkio}, we added methods to {\tt TBranch} (ROOT's data column) to extract arrays after decompression but before object materialization, as well as methods to expose these as Numpy arrays in Python. These enhancements, known as BulkIO, are being merged into the main ROOT repository with the intention of being included in ROOT version 6.12.
+Although the performance studies in the next section use ROOT with the BulkIO enhancements, this access method is also available in a pure Python package called uproot\cite{uproot}.
 
 \subsection{Performance Studies}
+
+
+
+
+
+
 
 The goal of this and the HEPQuery project is to make HEP analysis easier to develop and faster to run. We believe that broad type abstractions like PLUR and concise syntax like Python's are easier for data analysts to work with, especially when they are exploring a dataset and focusing on physics and statistics issues, rather than programming. We also intend to make the system as fast as or faster than idiomatic, object-oriented C++, so that analysts don't have to translate analysis code from a high-level language to a low-level one just to process a large dataset in a reasonable time. This is the allure of databases: SQL is as abstract as set theory and yet it is also faster than most procedural code.
 
