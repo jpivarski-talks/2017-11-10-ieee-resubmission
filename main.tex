@@ -681,7 +681,7 @@ Big data applications; Automatic programming; Data analysis; Scientific computin
 
 \section{Motivation}
 
-Data analysts in High Energy Physics (HEP) routinely deal with terabyte and petabyte scale datasets, but access them as objects persisted in files, rather than using databases. Thus, they miss out on advantages enjoyed by data analysts in other fields, such as automatic scale-out, data replication, indexing for faster selections, and term rewriting and query planning of high-level queries.
+Data analysts in High Energy Physics (HEP) routinely deal with terabyte and petabyte scale datasets, but access them as objects persisted in files, rather than using databases. Thus, they miss out on advantages enjoyed by data analysts in other fields, such as automated scale-out, data replication, indexing for faster selections, and term rewriting and query planning of high-level queries.
 
 A major reason for this is that HEP data do not fit any of the existing database models, including non-relational (NoSQL) ones: HEP data are hierarchically nested with arbitrary-length collections within collections, not the rectangular table served well by SQL (except perhaps at the very last stage of processing). This feature suggests a document store like MongoDB\cite{mongodb}, except that HEP data have regular structure that is sparsely accessed: only a few of the hundreds of attributes of objects within objects are needed at a time, which would be better served by typed columnar storage, rather than schemaless document storage. Unlike key-value tables, HEP data must be scanned in bulk; unlike graph databases, HEP data cross-linking is limited to small, disconnected graphs called ``events'' no larger than hundreds of kilobytes.
 
@@ -704,7 +704,15 @@ Furthermore, most of the well-known database systems use SQL or an SQL variant a
 \input{minted-1.tex}
 
 \vspace{0.15 cm}
-\noindent Often the first exploratory action in a HEP analysis is to plot a distribution of the highest particle {\tt pt} {\it per event.} We could do that in SQL by exploding the {\tt muons} into a virtual table and aggregating the maximum {\tt pt}, grouped by {\tt eventId}. If the execution engine loses track of the fact that unique values of {\tt eventId} are contiguous in the exploded table, the query would unnecessarily search the entire dataset for {\tt eventId} matches. A Python or C++ program would not.
+\noindent often the first exploratory action in a HEP analysis is to plot a distribution of the highest particle {\tt pt} {\it per event.} In SQL, one would explode the {\tt muons} into a virtual table and aggregate for maximum {\tt pt}, grouped by {\tt eventId}, but the database system should be made aware that the billions of events are small and should remain local to avoid billions of searches over the network. To search for particles that decay to one muon and one jet, the analyst would have to iterate over all possible pairs of {\tt muons} and {\tt jets}, computing the mass\footnote{$\sqrt{2 {p_1}^{p_T} {p_2}^{p_T} (\cosh({p_1}^\eta - {p_2}^\eta) - \cos({p_1}^\phi - {p_2}^\phi))}$ for $p_1$ and $p_2$} of each combination, with or without constraining to one candidate per event. Exploding both subcollections into two virtual tables, joining on {\tt eventId}, without unnecessarily distributing the workload is both syntactically inconvenient for the data analyst and an organizational headache for the database engineer. A short functional or procedural program applied to each event is much more natural than shoehorning the problem into SQL.
+
+HERE HERE HERE HERE HERE HERE 
+
+
+
+
+
+Often the first exploratory action in a HEP analysis is to plot a distribution of the highest particle {\tt pt} {\it per event.} We could do that in SQL by exploding the {\tt muons} into a virtual table and aggregating the maximum {\tt pt}, grouped by {\tt eventId}. If the execution engine loses track of the fact that unique values of {\tt eventId} are contiguous in the exploded table, the query would unnecessarily search the entire dataset for {\tt eventId} matches. A Python or C++ program would not.
 
 The second action a HEP analyst usually takes is to compute masses from {\tt pt}, {\tt eta}, and {\tt phi} of pairs of particles\footnote{$\sqrt{2 {p_1}^{p_T} {p_2}^{p_T} (\cosh({p_1}^\eta - {p_2}^\eta) - \cos({p_1}^\phi - {p_2}^\phi))}$ for $p_1$ and $p_2$}, to see if any were the decay products of a short-lived intermediary. Candidates for such a decay would always be found in the same event, so this query in SQL would involve a full outer join on two exploded {\tt muons} tables or exploded {\tt muons} and exploded {\tt jets}, subject to equal {\tt eventId}. In this case, it is even more important that the uniqueness of {\tt eventId} is tracked, since a join across a distributed database can be very expensive.
 
