@@ -736,7 +736,7 @@ Stronger type safety can be applied by overlaying this type system with names an
 
 Any data that can be described by a PLUR schema can be represented in columnar arrays. This mapping from objects to arrays is analogous to Object Relational Mapping (ORM) of databases, so we call it Object Array Mapping (OAM).
 
-HEP data in ROOT files are encoded in an OAM, though ROOT's encoding transforms any object with a C++ type into arrays. The C++ type system would be a large project to convert from data transformation rules into code transformation rules, so we limit our discussion to the PLUR type system. The data transformation rules we describe below happen to be very similar to ROOT's and also a subest of Apache Arrow\cite{arrow-layout}. We call it OAMap, and provide an implementation\cite{oamap} on GitHub. In our tests, we convert ROOT data into OAMap on the fly.
+HEP data in ROOT files are encoded in an OAM, though ROOT's encoding transforms any object with a C++ type into arrays. The C++ type system would be a large project to convert from data transformation rules into code transformation rules, so we limit our discussion to the PLUR type system. The data transformation rules we describe below happen to be very similar to ROOT's and also a subest of Apache Arrow\cite{arrow-layout}. We call it OAMap, and provide an implementation\cite{oamap} on GitHub. In our tests, we convert ROOT data into OAMap on-the-fly.
 
 OAMap does not specify a storage mechanism: any means of storing arrays in a namespace may be used. This could be a Python dict of Numpy arrays, an HDF5 file, a filesystem directory of raw files, or a distributed object store. Only a PLUR schema is required to interpret the data, and this schema can even be encoded as a naming convention in the names of the arrays, eliminating the need for type metadata. The following set of rules transform an object of type $T$ with name $N$ into a set of named arrays.
 
@@ -746,7 +746,7 @@ OAMap does not specify a storage mechanism: any means of storing arrays in a nam
 
 Next, iterate through each item in the List and apply the rule for $T'$ with name $N + \mbox{``-Ld''}$ (list data).
 
-{\bf If $T$ is a Union} with possible types $T_1, \ldots, T_n$ and the object has actual type $T_t$ (where $t \in [1, n]$), find or create an array named $N + \mbox{``-Ut''}$ (union tag) and append $t$.
+{\bf If $T$ is a Union} with possible types $T_1, \ldots, T_n$ and the value has actual type $T_t$ (where $t \in [1, n]$), find or create an array named $N + \mbox{``-Ut''}$ (union tag) and append $t$.
 
 Next, follow the rule for name $N + \mbox{``-Ud''} + t$ (union data~$t$) and type $T_t$.
 
@@ -762,11 +762,11 @@ The procedure described above losslessly stores the PLUR schema in array names a
 
 First, select arrays whose names begin with the prefix $N$ and pop the prefix from their names. For each of these arrays $a$, create an index $i_a$ whose initial value is 0. Then recursively apply the following rules.
 
-{\bf If only one array exists and its name is the empty string}, then the type is a Primitive. Take the value at index $i_a$ and increment $i_a$ by~1.
+{\bf If only one array exists and its name is the empty string}, then the type is a Primitive. Return the value at index $i_a$ and increment $i_a$ by~1.
 
 {\bf If one array name begins with ``-Lo'' and all others begin with ``-Ld''}, then the type is a List. Take $a[i_a + 1] - a[i_a]$ as the length $\ell$ of the List and increment $i_a$ by~1 for the array $a$ that begins with ``-Lo''.
 
-Pop the ``-Ld'' from the beginning of all other array names and apply the rule for that set of arrays $\ell$ times.
+Pop the ``-Ld'' from the beginning of all other array names and apply the rule for that set of arrays $\ell$ times to fill the List's contents.
 
 {\bf If one array name begins with ``-Ut'', and all others begin with ``-Ud''}, then the type is a Union.
 
@@ -781,19 +781,19 @@ If any other configuration of arrays and names is encountered, the arrays are ma
 \subsection{Random Access and Redundancy}
 \label{random-access-and-redundancy}
 
-The reason that List structures are represented by data offsets (arrays whose names end in ``-Lo''), rather than List lengths, is to permit random access. For instance, if we had a List$\langle$List$\langle$float$\rangle\rangle$ named with prefix ``x'' and we wanted the float at index $(i, j)$, we would compute
+The reason that List structures are represented by data offsets (arrays whose names end in ``-Lo''), rather than List lengths, is to permit random access. For instance, if we had a List$\langle$List$\langle${\tt float}$\rangle\rangle$ named ``x'' and we wanted the {\tt float} at index $(i, j)$, we would compute
 \[ \mbox{x-Lo-Ld{\tt [}x-Lo-Lo{\tt [}x-Lo{\tt [}} 0 \mbox{\tt ]} + i \mbox{\tt ]} + j \mbox{\tt ]} \]
 At each level, the contents of the ``-Lo'' array are the starting indices of the next-deeper structure.
 
 In fact, if we want to reconstruct only one object in a List, we simply apply the arrays-to-objects algorithm for that List's ``-Ld'' arrays with all indices starting at $i_a = i$.
 
-Random access is a useful feature, but this offset array is not optimal for compression or variable-length integer encoding algorithms. If we wish to store or transmit a List structure in the fewest possible bytes, it should be converted into a corresponding size array (suffix ``-Ls''). For all $i \in [0, \mbox{ length of x-Lo} - 1)$,
-\[ \mbox{x-Ls{\tt [}} i \mbox{\tt ]} \coloneqq \mbox{x-Lo{\tt [}} i + 1 \mbox{\tt ]} - \mbox{x-Lo{\tt [}} i \mbox{\tt ]} \]
-and vice-versa. (The offset array is one element longer than the size array because we include the initial offset 0, which simplifies the code transformation in the next section.) A nice option would be to transfer or store List structures as size arrays for less redundancy, then expand as offset arrays for random access.
+%% Random access is a useful feature, but this offset array is not optimal for compression or variable-length integer encoding algorithms. If we wish to store or transmit a List structure in the fewest possible bytes, it should be converted into a corresponding size array (suffix ``-Ls''). For all $i \in [0, \mbox{ length of x-Lo} - 1)$,
+%% \[ \mbox{x-Ls{\tt [}} i \mbox{\tt ]} \coloneqq \mbox{x-Lo{\tt [}} i + 1 \mbox{\tt ]} - \mbox{x-Lo{\tt [}} i \mbox{\tt ]} \]
+%% and vice-versa. (The offset array is one element longer than the size array because we include the initial offset 0, which simplifies the code transformation in the next section.) A nice option would be to transfer or store List structures as size arrays for less redundancy, then expand as offset arrays for random access.
 
-The Union structure, as described so far, is not random accessible. Data arrays for each type possibility $T_t$ are only filled if a datum of that type is observed, so each type possibility must be indexed by a different offset. The arrays-to-objects algorithm described in the previous subsection avoids this issue by walking over the data sequentially.
+The Union structure, as described so far, is not random accessible. Data arrays for each type possibility $T_t$ are only filled each time a value of that type is encountered, which cannot be every time for every type. Each type possibility must be indexed by a different offset, but these offsets can all be packed into the same array becuase exactly one type must be encountered per instance. The arrays-to-objects algorithm described in the previous subsection avoids this issue by walking over the data sequentially.
 
-To make Unions random accessible, we need to add a union offset array ``-Uo''. This can be generated from the tag array ``-Ut'' by
+To make Unions random accessible, we need to add a union offset array ``-Uo'', which can be generated from the tag array ``-Ut'' by
 \begin{algorithmic}
 \vspace{0.15 cm}
 \STATE $i_t \coloneqq 0$ {\bf for all} $t \in [1, n]$
@@ -806,19 +806,21 @@ To make Unions random accessible, we need to add a union offset array ``-Uo''. T
 \ENDFOR
 \end{algorithmic}
 
-Now we can access Union objects randomly: to reconstruct a Union at index $i$, we find the tag $t$ at x-Ut{\tt [}$i${\tt ]} and follow the arrays-to-objects algorithm on the set of arrays named with the corresponding ``-Ud$t$'', all starting at index $i_t$ given by $\mbox{x-Uo{\tt [}}i\mbox{\tt]}$.
+Now we can access Union objects randomly: to reconstruct a Union at index $i$, we find the tag $t$ at x-Ut{\tt [}$i${\tt ]} and follow the arrays-to-objects algorithm on the set of arrays named with the corresponding ``-Ud$t$'', all starting at index $i_t$ given by $\mbox{x-Uo{\tt [}}i\mbox{\tt]}$. Arrow calls this Union encoding dense.
 
-This union offset array is entirely redundant: it can always be generated from a tag array. Therefore, it never needs to be transmitted or stored.
+\subsection{Relationship to Apache Arrow and ROOT}
 
-\subsection{Relationship to Apache Arrow}
+We chose to implement a subset of the Arrow AOM to increase the usefulness of our tools beyond HEP. Arrow unifies in-memory data frames across a variety of Big Data platforms\cite{arrow}, so a code transformation tool that assumes this encoding may be directly applied to data from these platforms. The version of OAMap tested here lacks Arrow's nullable types, but it is being extended to cover these cases. OAMap generalizes beyond Arrow in that arrays may be provided on demand for large, out-of-memory datasets.
 
-Readers familiar with Apache Arrow might recognize this object-array encoding\cite{arrow-layout}: it is identical for equivalent Arrow types. Arrow additionally defines null-value masks for each type and headers for seeking to the memory address of each array, rather than assuming a name-based lookup.
+ROOT's encoding differs from OAMap in that some List offsets are represented as byte offsets, which can be converted to object offsets by an affine transformation, and in some cases as List lengths, which must be summed. Also, OAM is optional in ROOT and is only carried out one List level deep, but most HEP data are presented in this form anyway. Different C++ types like STL vectors and arrays are encoded differently, so we normalize all list-like types to PLUR Lists in our on-the-fly conversion.
 
-With the appropriate translation between PLUR types and Arrow types, array names and Arrow memory addresses, the code transformation procedure described in the next section can be used unmodified on Arrow data, and therefore Pandas\cite{pandas}, R\cite{R}, or SparkSQL\cite{sparksql} DataFrames that are internally represented as Arrow. Alternatively, one could expand our code transformation procedure to cover the Arrow specification natively.
+%% Readers familiar with Apache Arrow might recognize this object-array encoding\cite{arrow-layout}: it is identical for equivalent Arrow types. Arrow additionally defines null-value masks for each type and headers for seeking to the memory address of each array, rather than assuming a name-based lookup.
+
+%% With the appropriate translation between PLUR types and Arrow types, array names and Arrow memory addresses, the code transformation procedure described in the next section can be used unmodified on Arrow data, and therefore Pandas\cite{pandas}, R\cite{R}, or SparkSQL\cite{sparksql} DataFrames that are internally represented as Arrow. Alternatively, one could expand our code transformation procedure to cover the Arrow specification natively.
 
 \section{Code Transformation}
 
-An important feature of this data representation is that a structure of any type can be expressed by a single integer, the index that would be used to start the arrays-to-objects algorithm. A type and an array name prefix uniquely specifies a set of arrays, so the only new information at runtime are locations within those arrays.
+OAMap's most important feature is that the structure of any type can be expressed by a single integer: the index that would be used to start the arrays-to-objects algorithm. A type and a name prefix uniquely specifies a set of arrays, so the only values required at runtime are the locations of instance data within those arrays.
 
 Only one index is required because:
 \begin{itemize}
@@ -828,19 +830,19 @@ Only one index is required because:
 \item a Record is just a bundle of fields with no structure array. However, the contents of all fields in a Record object start at the same index.
 \end{itemize}
 
-Therefore, any function that operates on Primitive, List, Union, and Record objects, no matter how complicated, can be replaced with a function that operates on integer indices. We can shape the code to match the data format, rather than shaping the data to match the object-oriented vocabulary of the code.
+Therefore, any function that operates on Primitive, List, Union, and Record objects, no matter how complicated, can be replaced with a function that operates on integer indices. Replacing each instance of a PLUR-typed object with its index and all functions and code constructs operating on objects with the equivalent operations for indices transforms the code to match the data encoding, rather than shaping the data to match the object-oriented vocabulary of the code.
 
-To see this as an alternative to deserialization, consider a scenario in which all arrays are in a binary file on disk that has been memory-mapped to look like an array. When the transformed code accesses a structured object, it is actually reading values from disk. No additional representation of the data is created; the new function knows what to do from the raw byte values and proceeds as the old function would have with objects. We have skipped deserialization.
+To see this as an alternative to deserialization, consider an extreme scenario in which all arrays are in a binary file on disk that has been memory-mapped to look like an array. Wherever the source code would have required a structured object, the compiled code reads byte values directly from disk. No additional representation of the data is created.
 
-The technique described below can be applied to code written in any language, but all of the explicit examples are for Python code because our implementation\cite{plur} transforms Python code.
+This technique can be applied to code written in any language, but all of the explicit examples are applied to Python code because this is our chosen query language.
 
 \subsection{General Strategy}
 
-Unlike SQL, procedural and functional programming languages can assign and possibly reassign variables, extract substructure as new variables, loop over substructure, and pass objects to other functions, where they are identified with new names. It is not sufficient to only transform symbols that coincide with prefix names, since parts of the data structure may be spread among user-defined variables. To avoid missing code that needs to be transformed, we must track the PLUR type of all symbols in the function.
+Unlike SQL, functional and procedural programming languages can assign and possibly reassign variables, extract substructure as new variables, loop over substructure, and pass objects to other functions, where they are identified with new names. It is not sufficient to only transform symbols that coincide with array names, since parts of the data structure may be spread among user-defined variables. To avoid missing code that needs to be transformed, we must track the PLUR type of all symbols in the function.
 
-We therefore need a typed AST, in which PLUR types and array name prefixes are associated with any expression nodes that hold non-Primitive PLUR type. (Knowledge of other types is not necessary but not harmful.) The prefixes must be propagated with the type because different parts of a data structure may have the same type but different values, and the correct array references need to be injected into the code. Code transformation and type propagation may be performed in a single sweep.
+We therefore need a typed AST, in which PLUR types and array names are associated with all expression nodes that hold non-Primitive PLUR type. (Knowledge of other types is not necessary but not harmful.) These types and names must be propagated from symbols to expressions through assignment operators so that the correct array references may be injected into the code. We performed code transformation and type propagation in a single sweep.
 
-There are several constraints on the code to be transformed. It cannot create or change PLUR objects, which is reasonable for an analysis procedure. It can use external functions, but if a non-Primitive PLUR object is passed as an argument to such a function, the code for that function must be accessible so that it can be transformed, too. If the same function is called in different places with different PLUR types/names as arguments, multiple versions of the transformed function will be generated. These external functions cannot be created or passed dynamically; their code must be accessible for conversion during the transformation sweep.
+There are several constraints on the code to be transformed. It cannot create or change PLUR-typed objects, which is reasonable for a query language in which the input dataset and auxiliary inputs are immutable. The analysis function may call external functions, but the AST of those functions must either be accessible so they can be transformed, too, or they must accept only Primitive or non-PLUR arguments. Functions cannot be passed as objects and then called on PLUR types, since an unknown function can't be transformed before runtime. A variable name can't have different PLUR types in the same scope, which is a common constraint for statically typed code, but unusual for dynamically typed Python. All of these are restricted by the Numba compiler as well, and since we pass our transformed functions to Numba, they do not represent {\it additional} constraints. Our code transformation process may be viewed as extending Numba from arrays and simple Python types to include any immutable, PLUR-typed object.
 
 The following AST nodes must be transformed:
 \begin{itemize}
@@ -962,7 +964,7 @@ One way to support particularly difficult cases, such as external functions with
 
 As described in Section~\ref{type-system}, basic types described only in terms of Primitive, List, Union, and Record generators should be augmented by higher-level interpretations of these types, distinctions that are relevant for runtime behavior, not data packing. These runtime types would be implemented at this level.
 
-For instance, a String or UTF8String type would be admissible to functions that {\tt capitalize} and {\tt lower}, but List$\langle$byte$\rangle$ would not. The former would be implemented as a special function, like {\tt len} and {\tt isinstance}. Pointers should either be transparently dereferenced (can cause infinite loops) or opaquely with a special function or syntax.
+For instance, a String or UTF8String type would be admissible to functions that {\tt capitalize} and {\tt lower}, but List$\langle${\tt byte}$\rangle$ would not. The former would be implemented as a special function, like {\tt len} and {\tt isinstance}. Pointers should either be transparently dereferenced (can cause infinite loops) or opaquely with a special function or syntax.
 
 \section{Implementation}
 
