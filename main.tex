@@ -512,7 +512,7 @@ Big Data query systems represent data in a columnar format for fast, selective a
 
 However, many analysis procedures cannot be easily or efficiently expressed as SQL. In High Energy Physics, the majority of data processing requires nested loops with complex dependencies. When faced with tasks like these, the conventional approach is to convert the columnar data back into an object form, usually with a performance price.
 
-This paper describes a new technique to transform procedural code so that it operates on columnar data natively, without row materialization. It can be viewed as a compiler pass on the typed abstract syntax tree, rewriting references to objects as columnar array lookups.
+This paper describes a new technique to transform procedural code so that it operates on hierarchically nested, columnar data natively, without row materialization. It can be viewed as a compiler pass on the typed abstract syntax tree, rewriting references to objects as columnar array lookups.
 
 We will also present performance comparisons between transformed code and conventional object-oriented code in a High Energy Physics context.
 
@@ -755,7 +755,7 @@ Next, follow the rule for name $N + \mbox{``-Ud''} + t$ (union data~$t$) and typ
 
 A Record does not generate any arrays to represent its structure (as Lists and Unions do); the connection between fields in an array is entirely encoded in the PLUR schema or naming convention. To ensure that array names can be properly parsed, field names must not contain the character ``-'' (or a different delimiter should be chosen).
 
-Be sure to include empty/trivial arrays for types that were not touched due to missing data (Lists that are all empty at a given level or Union type possibilities that never occur in the data) or make the reading procedure insensitive to missing arrays. A simple way to include all arrays is to create them with a first pass over the type schema and only append to them in the pass over data.
+One must be sure to include empty/trivial arrays for types that were not touched due to missing data (Lists that are all empty at a given level or Union type possibilities that never occur in the data) or make the reading procedure insensitive to missing arrays. A simple way to include all arrays is to create them with a first pass over the type schema and only append to them in the pass over data.
 
 \subsection{OAMap: Arrays to Objects}
 
@@ -807,7 +807,7 @@ To make Unions random accessible, we need to add a union offset array ``-Uo'', w
 \ENDFOR
 \end{algorithmic}
 
-Now we can access Union objects randomly: to reconstruct a Union at index $i$, we find the tag $t$ at x-Ut{\tt [}$i${\tt ]} and follow the arrays-to-objects algorithm on the set of arrays named with the corresponding ``-Ud$t$'', all starting at index $i_t$ given by $\mbox{x-Uo{\tt [}}i\mbox{\tt]}$. Arrow calls this Union encoding dense.
+Now we can access Union objects randomly: to reconstruct a Union at index $i$, we find the tag $t$ at x-Ut{\tt [}$i${\tt ]} and follow the arrays-to-objects algorithm on the set of arrays named with the corresponding ``-Ud$t$'', all starting at index $i_t$ given by $\mbox{x-Uo{\tt [}}i\mbox{\tt]}$. Arrow calls this a ``dense union.''
 
 \subsection{Relationship to Apache Arrow and ROOT}
 
