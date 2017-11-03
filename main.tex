@@ -833,17 +833,17 @@ Only one index is required because:
 
 Therefore, any function that operates on Primitive, List, Union, and Record objects, no matter how complicated, can be replaced with a function that operates on integer indices. Replacing each instance of a PLUR-typed object with its index and all functions and code constructs operating on objects with the equivalent operations for indices transforms the code to match the data encoding, rather than shaping the data to match the object-oriented vocabulary of the code.
 
-To see this as an alternative to deserialization, consider an extreme scenario in which all arrays are in a binary file on disk that has been memory-mapped to look like an array. Wherever the source code would have required a structured object, the compiled code reads byte values directly from disk. No additional representation of the data is created.
+To see this as an alternative to deserialization, consider an extreme scenario in which all arrays are in a binary file on disk that has been memory-mapped to look like an array. Wherever the source code would have required a structured object, the compiled code operates directly on the raw bytes on disk. No additional representation of the data is created.
 
 This technique can be applied to code written in any language, but all of the explicit examples are applied to Python code because this is our chosen query language.
 
 \subsection{General Strategy}
 
-Unlike SQL, functional and procedural programming languages can assign and possibly reassign variables, extract substructure as new variables, loop over substructure, and pass objects to other functions, where they are identified with new names. It is not sufficient to only transform symbols that coincide with array names, since parts of the data structure may be spread among user-defined variables. To avoid missing code that needs to be transformed, we must track the PLUR type of all symbols in the function.
+Unlike SQL, functional and procedural programming languages can assign and possibly reassign variables, extract substructure as new variables, loop over substructure, and pass objects to other functions, where they are identified with new names. It is not sufficient to only transform symbols that coincide with object names, since parts of the data structure may be spread among user-defined variables. To avoid missing code that needs to be transformed, we must track the PLUR type of all symbols in the function.
 
 We therefore need a typed AST, in which PLUR types and array names are associated with all expression nodes that hold non-Primitive PLUR type. (Knowledge of other types is not necessary but not harmful.) These types and names must be propagated from symbols to expressions through assignment operators so that the correct array references may be injected into the code. We performed code transformation and type propagation in a single sweep.
 
-There are several constraints on the code to be transformed. It cannot create or change PLUR-typed objects, which is reasonable for a query language in which the input dataset and auxiliary inputs are immutable. The analysis function may call external functions, but the AST of those functions must either be accessible so they can be transformed, too, or they must accept only Primitive or non-PLUR arguments. Functions cannot be passed as objects and then called on PLUR types, since an unknown function can't be transformed before runtime. A variable name can't have different PLUR types in the same scope, which is a common constraint for statically typed code, but unusual for dynamically typed Python. All of these are restricted by the Numba compiler as well, and since we pass our transformed functions to Numba, they do not represent {\it additional} constraints. Our code transformation process may be viewed as extending Numba from arrays and simple Python types to include any immutable, PLUR-typed object.
+There are several constraints on the code to be transformed. It cannot create or change PLUR-typed objects, which is reasonable for a query language in which the input dataset and auxiliary inputs are immutable. The analysis function may call external functions, but the AST of those functions must either be accessible so they can be transformed, too, or they must accept only Primitive or non-PLUR arguments. Functions cannot be passed as objects and then called on PLUR types, since an unknown function can't be statically transformed. A variable name can't have different PLUR types in the same scope, which is a normal constraint for statically typed code, but unusual for dynamically typed Python. All of these are restricted by the Numba compiler as well, and since we pass our transformed functions to Numba, they do not represent {\it additional} constraints. Our code transformation process may be viewed as extending Numba from arrays and simple Python types to include any immutable, PLUR-typed object.
 
 The following AST nodes must be transformed:
 \begin{itemize}
@@ -868,11 +868,7 @@ For Primitive and List types:
 \end{center}
 where {\tt array} is the array associated with a Primitive or the offset array associated with a List.
 
-Unions immediately resolve to their specific type. This is most easily handled by (1) creating a new symbol in the transformed code to hold the tag value and (2) checking each tag possibility, returning the offset of the appropriate one:
-\begin{center}
-{\tt x} $\to$ {\tt t $\coloneqq$ tag[x]; if (t == 0) off[x] \ldots}
-\end{center}
-Python does not allow assignment in an expression (and the symbol reference may appear anywhere in an expression), so we implement it by generating a new function and adding call to that new function. Depending on LLVM's heuristics, Numba might inline that function call.
+Union objects should be immediately replaced with an object of specific type. Since that type is not known during code transformation, every branch must be followed, and subsequent code transformations must be predicated on the runtime tag value. The symbol table must therefore be branchable, a list of possible symbol tables that multiplies as unions are encountered. Union types lengthen the compilation process, but have minimal impact on runtime (an extra integer check). Branching is tamped by any {\tt isinstance} checks written by the user (see below).
 
 References to Record symbols do not require any transformation, though they are reinterpreted as indices that would be passed to their fields when subscripting (see below).
 
@@ -882,7 +878,7 @@ Assignment is more complex if one tries to handle pattern matching, such as Pyth
 
 {\bf List subscripts} replace a List index with a Primitive value if it is a List of Primitives or the index of the next substructure down if it is any other type. This can be performed in two steps: (1) transform
 \begin{center}
-{\tt x[i]} $\to$ {\tt off[x + i]}
+{\tt x[i]} $\to$ {\tt offset[x + i]}
 \end{center}
 and then (2) transform the result of this as though it were a symbol reference (rule described above) using the List's contained type.
 
@@ -922,7 +918,7 @@ The loop variable is now an integer representing indices into the List's content
 \end{center}
 {\it without} transforming the argument {\tt x} (unlike other function calls, which operate on transformed arguments).
 
-{\bf isinstance}: (check type) must return true if the argument has a given type, false otherwise. Since references to non-Primitive PLUR types have all been replaced with integer indices, a naive application of the {\tt isinstance} function would say that they are all integers, contrary to a user's expectation.
+{\bf isinstance}: (check type) must return true if the argument has a given type, false otherwise. If the symbol table is branched, some symbol tables may be eliminated in scopes guarded by an {\tt isinstance} check (``{\tt and}'' and ``{\tt if}''). This is the primary way a user might benefit from a Union type.
 
 The type or types to check would have to be known as literal names, not computed references, during the transformation sweep. If the argument to check has List or Record type, the whole expression can be statically replaced with a literal {\tt True} or {\tt False}, depending on whether the desired types are in the set of types to check. If it is a Union, it must be replaced with a tag check.
 
@@ -1152,7 +1148,7 @@ The first, ``max p$_{\mbox{\scriptsize T}}$,'' is an example of a query that wou
 
 The second, ``eta of best by p$_{\mbox{\scriptsize T}}$,'' is an extension of that idea: we select a muon by maximizing {\tt pt} and then plot its {\tt eta}. This is even more awkward in SQL, but very common in HEP.
 
-In the listing, note that {\tt best}, which is a muon object, is initialized as $-1$ in Python and {\tt nullptr} in C++. At the time of testing, the code transformer had no concept of a nullable PLUR type, though OAMap has this feature now. Instead of initializing the {\it object} as $-1$ and checking for that value as a negative index, we can now write it more naturally as {\tt None} and assigning the same variable as a muon Record and a number would be a compile-time error.
+In the listing, note that {\tt best}, which is a muon object, is initialized as $-1$ in Python and {\tt nullptr} in C++. At the time of testing, the code transformer had no concept of a nullable PLUR type, though OAMap has this feature now. Instead of initializing the object as $-1$ and checking for that value as a negative index, we can now write it more naturally as {\tt None} and assigning the same variable as a muon Record and a number would be a compile-time error.
 
 The third function, ``mass of pairs,'' would require a full outer join in SQL but is a nested for loop in Python and C++, carefully indexed to avoid duplication. This kind of ``unique pairs'' loop is very common (often with a selection, e.g.\ requiring opposite-sign charges), and the {\tt mass} formula is one of the most frequently executed in HEP.
 
