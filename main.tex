@@ -443,7 +443,7 @@
 % to submit to, of course. )
 
 \usepackage{flushend}
-\usepackage{hyperref}
+%\usepackage{hyperref}
 
 % correct bad hyphenation here
 \hyphenation{op-tical net-works semi-conduc-tor}
@@ -1204,7 +1204,7 @@ This should not be taken as a claim that Python is faster than C++, just as SQL 
 
 %% The direct use of columns in execution is related to the use of columns in data management, which has been fully exploited in tabular datasets but less so for hierarchically nested data, especially in HEP. Collections of related columns do not need to be file-bound objects, as they are in ROOT and Parquet files. In principle, a nested object mapped to arrays may be described by arrays from different sources, such as a user generating jet energy corrections as a single array and blending it with the source dataset to make a new version with corrected energies. Old and new versions of datasets may share common data. Even skims (filtered data) can be supported using database-style stencils. Code execution on columnar arrays is part of a larger program.
 
-Finally, the usefulness of this technique is not limited to HEP. The need for complex loop dependencies can hardly be HEP-specific\footnote{As an indication of this need, Netflix proposed changes to Spark to allow higher-order functions in SparkSQL, which would transform subcollections without a full explode-and-join: \url{https://issues.apache.org/jira/browse/SPARK-22231}}. Although many industries and fields of academia are currently using SQL or languages similar to SQL for data analysis, how much is being left unexplored because the tools are not suited for the task?
+Finally, the usefulness of this technique is not limited to HEP. The need for complex loop dependencies can hardly be HEP-specific\footnote{As an indication of this need, Netflix proposed changes to Spark to allow higher-order functions in SparkSQL, which would transform subcollections without a full explode-and-join: {\tt https://issues.apache.org/jira/browse/SPARK-22231}}. Although many industries and fields of academia are currently using SQL or languages similar to SQL for data analysis, how much is being left unexplored because the tools are not suited for the task?
 
 It is our hope that this technique finds application in many different fields, just as the techniques of database-style analysis have inspired our work in HEP.
 
